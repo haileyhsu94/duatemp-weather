@@ -1,0 +1,118 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>The Daily Weather</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --bg-paper: #f4f1ea;
+        --ink: #1a1a1a;
+      }
+      body {
+        font-family: 'Space Grotesk', sans-serif;
+        -webkit-tap-highlight-color: transparent;
+        background-color: var(--bg-paper);
+        color: var(--ink);
+      }
+      
+      h1, h2, h3, .font-headline {
+        font-family: 'Playfair Display', serif;
+      }
+
+      /* Hide scrollbar for clean widget look */
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+
+      /* Newspaper Texture */
+      .bg-newspaper {
+        background-color: #f4f1ea;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.08'/%3E%3C/svg%3E");
+        position: relative;
+      }
+
+      /* Weather Tints (Subtle Washes over the paper) */
+      
+      .theme-default {
+        /* Just the raw paper */
+      }
+      
+      .theme-sunny::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at top right, rgba(253, 253, 150, 0.4) 0%, transparent 60%);
+        pointer-events: none;
+      }
+      
+      .theme-cloudy::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(to bottom right, rgba(207, 217, 223, 0.3) 0%, rgba(226, 235, 240, 0.3) 100%);
+        pointer-events: none;
+      }
+      
+      .theme-rain::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(161, 196, 253, 0.2) 0%, rgba(194, 233, 251, 0.2) 100%);
+        pointer-events: none;
+      }
+      
+      .theme-snow::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(to top, rgba(230, 233, 240, 0.4) 0%, rgba(238, 241, 245, 0.4) 100%);
+        pointer-events: none;
+      }
+
+      .theme-night::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(to top, rgba(48, 48, 70, 0.15) 0%, rgba(80, 80, 100, 0.05) 100%);
+        pointer-events: none;
+      }
+
+      /* Hatching Pattern for Charts */
+      .bg-hatch {
+        background-image: linear-gradient(45deg, #1a1a1a 12.5%, transparent 12.5%, transparent 50%, #1a1a1a 50%, #1a1a1a 62.5%, transparent 62.5%, transparent);
+        background-size: 6px 6px;
+      }
+      
+      /* Double border helper */
+      .double-border {
+        border-top: 3px double #1a1a1a;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="min-h-screen w-full overflow-x-hidden">
+    <div id="root" class="w-full min-h-screen"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "name": "DuaTemp Weather",
+  "description": "A playful, widget-style weather dashboard that displays Celsius and Fahrenheit simultaneously, features daily updates, weekly forecasts, and location favorites.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

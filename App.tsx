@@ -136,7 +136,7 @@ const App: React.FC = () => {
             <span className="text-[10px] font-bold uppercase tracking-widest">{todayDate}</span>
             <span className="text-[10px] font-bold uppercase tracking-widest">Late Edition</span>
           </div>
-          <h1 className="font-headline font-black text-5xl md:text-7xl tracking-tight leading-none py-2">
+          <h1 className="font-headline font-black text-3xl md:text-7xl tracking-tight leading-none py-2">
             THE DAILY SKY
           </h1>
           <div className="border-t border-black py-1 flex justify-center items-center gap-4 text-xs font-bold uppercase tracking-widest">

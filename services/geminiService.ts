@@ -6,7 +6,9 @@ const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
 
 // For local VM testing: enable mock responses so the UI can render the SUCCESS state
 // without requiring a real Gemini API key.
-const mockEnabled = import.meta.env?.VITE_GEMINI_MOCK === "true";
+// `import.meta.env` typings may not be present in this repo's TS setup.
+// Cast to `any` so type-checking doesn't fail.
+const mockEnabled = (import.meta as any).env?.VITE_GEMINI_MOCK === "true";
 
 const isApiKeyMissing =
   !apiKey || apiKey === "PLACEHOLDER_API_KEY" || apiKey === "your_api_key_here";

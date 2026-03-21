@@ -22,6 +22,14 @@ Create a file at `.env.local`:
 
 Without a valid key, the UI still renders, but API-dependent features will fail (and you'll see errors in the browser console).
 
+## Optional: test without a real API key (mock mode)
+
+To test the full UI (including the “SUCCESS” weather rendering) without calling Gemini:
+
+1. In `/workspace/.env.local`, set:
+   - `VITE_GEMINI_MOCK=true`
+2. Restart the dev server: `npm run dev`
+
 ## Run the app
 
 - Dev server: `npm run dev`

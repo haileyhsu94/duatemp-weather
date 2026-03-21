@@ -4,14 +4,87 @@ import { WeatherData } from "../types";
 
 const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
 
-if (!apiKey || apiKey === 'PLACEHOLDER_API_KEY' || apiKey === 'your_api_key_here') {
+// For local VM testing: enable mock responses so the UI can render the SUCCESS state
+// without requiring a real Gemini API key.
+const mockEnabled = import.meta.env?.VITE_GEMINI_MOCK === "true";
+
+const isApiKeyMissing =
+  !apiKey || apiKey === "PLACEHOLDER_API_KEY" || apiKey === "your_api_key_here";
+
+if (!mockEnabled && isApiKeyMissing) {
   console.error("⚠️ GEMINI_API_KEY is missing or invalid. Please set it in .env.local");
 }
 
-const ai = new GoogleGenAI({ apiKey: apiKey || '' });
+const ai = new GoogleGenAI({ apiKey: apiKey || "" });
+
+const buildMockWeather = (query: string): WeatherData => {
+  // Deterministic “nice looking” mock data; keeps UI testing stable.
+  const locationName = query.trim() ? query.trim() : "Sample City";
+  const tempC = 21;
+  const high = 26;
+  const low = 16;
+
+  const baseHour = 9;
+  const hourly = Array.from({ length: 12 }).map((_, i) => {
+    const hour = (baseHour + i) % 24;
+    const time = `${String(hour).padStart(2, "0")}:00`;
+    const temp_c = tempC + (i - 4) * 0.8;
+    // Alternate between sun/cloud to look varied.
+    const emoji = i % 3 === 0 ? "☀️" : i % 3 === 1 ? "🌤️" : "☁️";
+    return { time, temp_c: Math.round(temp_c * 10) / 10, emoji };
+  });
+
+  const conditions = ["Partly Sunny", "Cloudy", "Mostly Sunny", "Light Rain"];
+  const forecast = Array.from({ length: 7 }).map((_, i) => {
+    const dayIdx = i % conditions.length;
+    const emoji = dayIdx === 3 ? "🌧️" : dayIdx === 1 ? "☁️" : "☀️";
+    const condition = conditions[dayIdx];
+    return {
+      day: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i] || `Day ${i + 1}`,
+      tempLow: Math.round((low - i * 0.3) * 10) / 10,
+      tempHigh: Math.round((high - i * 0.2) * 10) / 10,
+      condition,
+      emoji,
+    };
+  });
+
+  return {
+    locationName,
+    tempCelsius: tempC,
+    condition: "Partly Sunny",
+    currentEmoji: "🌤️",
+    description: "A breezy, headline-worthy day. Dress for sun between the clouds.",
+    outfitSuggestion: "Linen shirt + light jacket weather.",
+    feelsLike: 20,
+    tempHigh: high,
+    tempLow: low,
+    uvIndex: 5,
+    rainChance: 15,
+    hourly,
+    forecast,
+    groundingSource: "mock://local",
+  };
+};
+
+const buildMockSuggestions = (query: string): string[] => {
+  const q = query.trim();
+  if (!q) return [];
+  return [
+    `${q} City`,
+    `${q}, State`,
+    `${q} Metro Area`,
+    `${q} Beach`,
+    `${q} Heights`,
+  ];
+};
 
 export const getCitySuggestions = async (query: string): Promise<string[]> => {
   if (query.length < 3) return [];
+
+  if (mockEnabled) {
+    // Short-circuit to make UI testing deterministic without external calls.
+    return buildMockSuggestions(query);
+  }
 
   const model = "gemini-2.5-flash";
   const prompt = `
@@ -48,6 +121,10 @@ const sanitizeEmoji = (emoji: string): string => {
 
 export const getWeather = async (query: string): Promise<WeatherData> => {
   const model = "gemini-2.5-flash"; 
+
+  if (mockEnabled) {
+    return buildMockWeather(query);
+  }
   
   // Optimized prompt for speed and structure
   const prompt = `

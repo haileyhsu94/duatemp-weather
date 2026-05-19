@@ -8,10 +8,62 @@ import Favorites from './components/Favorites';
 import ForecastView from './components/ForecastView';
 import { WeatherData, LocationItem, LoadingState } from './types';
 
+type LocationSource = 'Precise GPS' | 'Recent GPS' | 'Timezone fallback' | 'Search' | 'Favorite';
+
+const LAST_COORDS_KEY = 'duaTempLastCoords';
+const LAST_COORDS_MAX_AGE = 10 * 60 * 1000;
+
+const formatCoordsForWeather = (latitude: number, longitude: number) =>
+  `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`;
+
+const getTimezoneLocationQuery = () => {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const fallback = timezone?.split('/').pop()?.replace(/_/g, ' ');
+
+  return fallback || 'New York';
+};
+
+const getCachedCoords = () => {
+  try {
+    const cached = localStorage.getItem(LAST_COORDS_KEY);
+    if (!cached) return null;
+
+    const parsed = JSON.parse(cached) as {
+      latitude: number;
+      longitude: number;
+      timestamp: number;
+    };
+
+    if (
+      Number.isFinite(parsed.latitude) &&
+      Number.isFinite(parsed.longitude) &&
+      Date.now() - parsed.timestamp < LAST_COORDS_MAX_AGE
+    ) {
+      return parsed;
+    }
+  } catch (e) {
+    // Ignore localStorage errors.
+  }
+
+  return null;
+};
+
+const cacheCoords = (latitude: number, longitude: number) => {
+  try {
+    localStorage.setItem(
+      LAST_COORDS_KEY,
+      JSON.stringify({ latitude, longitude, timestamp: Date.now() })
+    );
+  } catch (e) {
+    // Ignore localStorage errors.
+  }
+};
+
 const App: React.FC = () => {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [status, setStatus] = useState<LoadingState>(LoadingState.IDLE);
   const [error, setError] = useState<string | null>(null);
+  const [locationSource, setLocationSource] = useState<LocationSource | null>(null);
   const [favorites, setFavorites] = useState<LocationItem[]>(() => {
     const saved = localStorage.getItem('duaTempFavorites');
     return saved ? JSON.parse(saved) : [];
@@ -46,9 +98,10 @@ const App: React.FC = () => {
     }
   }, [weather]);
 
-  const fetchWeather = async (query: string) => {
+  const fetchWeather = async (query: string, source: LocationSource = 'Search') => {
     setStatus(LoadingState.LOADING);
     setError(null);
+    setLocationSource(source);
     try {
       const data = await getWeather(query);
       setWeather(data);
@@ -60,17 +113,30 @@ const App: React.FC = () => {
     }
   };
 
-  const handleCurrentLocation = () => {
+  const handleCurrentLocation = (useCachedLocation = true) => {
     if (navigator.geolocation) {
       setStatus(LoadingState.LOADING);
+      setError(null);
+
+      const cachedCoords = useCachedLocation ? getCachedCoords() : null;
+      if (cachedCoords) {
+        fetchWeather(formatCoordsForWeather(cachedCoords.latitude, cachedCoords.longitude), 'Recent GPS');
+        return;
+      }
+
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
-          fetchWeather(`${latitude}, ${longitude}`);
+          cacheCoords(latitude, longitude);
+          fetchWeather(formatCoordsForWeather(latitude, longitude), 'Precise GPS');
         },
         () => {
-          alert("Unable to retrieve your location");
-          setStatus(LoadingState.IDLE);
+          fetchWeather(getTimezoneLocationQuery(), 'Timezone fallback');
+        },
+        {
+          enableHighAccuracy: false,
+          maximumAge: LAST_COORDS_MAX_AGE,
+          timeout: 8000,
         }
       );
     }
@@ -114,7 +180,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const defaultLoc = favorites.find(f => f.isDefault);
     if (defaultLoc) {
-      fetchWeather(defaultLoc.name);
+      fetchWeather(defaultLoc.name, 'Favorite');
     } else {
       handleCurrentLocation();
     }
@@ -154,7 +220,7 @@ const App: React.FC = () => {
              <SearchBar onSearch={fetchWeather} isLoading={status === LoadingState.LOADING} />
            </div>
            <button 
-            onClick={handleCurrentLocation}
+            onClick={() => handleCurrentLocation()}
             className="h-12 w-12 flex items-center justify-center border border-black bg-white hover:bg-gray-100 transition-colors box-border rounded-xl shadow-sm"
             title="Use Current Location"
           >
@@ -201,6 +267,11 @@ const App: React.FC = () => {
                     {weather.condition} 
                     <span className="ml-2 not-italic text-lg">{weather.currentEmoji}</span>
                  </p>
+                 {locationSource && (
+                   <div className="mt-2 inline-flex items-center border border-black bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md">
+                     Location: {locationSource}
+                   </div>
+                 )}
               </div>
               <button 
                 onClick={toggleFavorite} 
@@ -254,6 +325,7 @@ const App: React.FC = () => {
               feelsLike={weather.feelsLike}
               highTemp={weather.tempHigh}
               lowTemp={weather.tempLow}
+              condition={weather.condition}
               sourceUrl={weather.groundingSource} 
             />
           </div>
@@ -261,7 +333,7 @@ const App: React.FC = () => {
 
         <Favorites 
           favorites={favorites} 
-          onSelect={fetchWeather} 
+          onSelect={(location) => fetchWeather(location, 'Favorite')}
           onRemove={removeFavorite} 
           onSetDefault={setDefaultLocation}
         />

@@ -1,0 +1,29 @@
+{
+  "name": "The Daily Sky",
+  "short_name": "Daily Sky",
+  "description": "A playful, widget-style weather dashboard that displays Celsius and Fahrenheit simultaneously, features daily updates, weekly forecasts, and location favorites.",
+  "theme_color": "#f4f1ea",
+  "background_color": "#f4f1ea",
+  "display": "standalone",
+  "orientation": "portrait",
+  "scope": "/",
+  "start_url": "/",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

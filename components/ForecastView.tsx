@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { ArrowUpRight } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, CloudRain, Sun, ThermometerSun } from 'lucide-react';
 import { ForecastDay, HourlyForecast } from '../types';
 
 interface ForecastViewProps {
@@ -12,6 +12,7 @@ interface ForecastViewProps {
   feelsLike: number;
   highTemp: number;
   lowTemp: number;
+  condition: string;
   sourceUrl?: string;
 }
 
@@ -21,6 +22,9 @@ const ForecastView: React.FC<ForecastViewProps> = ({
   uvIndex,
   rainChance,
   feelsLike,
+  highTemp,
+  lowTemp,
+  condition,
   sourceUrl 
 }) => {
   // Toggle only applies to the 7-day forecast now, as Hourly shows both.
@@ -58,6 +62,34 @@ const ForecastView: React.FC<ForecastViewProps> = ({
   const minW = Math.min(...allLows); 
   const maxW = Math.max(...allHighs); 
   const rangeW = maxW - minW || 1;
+
+  const conditionLower = condition.toLowerCase();
+  const practicalAlerts = [
+    ...(uvIndex >= 8 ? [{
+      title: 'High UV',
+      body: 'Use sunscreen and shade breaks around midday.',
+      Icon: Sun,
+    }] : uvIndex >= 6 ? [{
+      title: 'Moderate UV',
+      body: 'Sunglasses and SPF are worth it today.',
+      Icon: Sun,
+    }] : []),
+    ...(rainChance >= 60 || conditionLower.includes('rain') || conditionLower.includes('drizzle') || conditionLower.includes('storm') ? [{
+      title: 'Rain Watch',
+      body: `${rainChance}% chance of rain. Pack a compact umbrella or shell.`,
+      Icon: CloudRain,
+    }] : []),
+    ...(highTemp >= 30 ? [{
+      title: 'Heat Note',
+      body: 'Hydrate early and keep heavier layers out of the plan.',
+      Icon: ThermometerSun,
+    }] : []),
+    ...(lowTemp <= 5 ? [{
+      title: 'Cold Low',
+      body: 'The low dips close to coat territory, especially late.',
+      Icon: ThermometerSun,
+    }] : []),
+  ].slice(0, 3);
 
   return (
     <div className="w-full space-y-8">
@@ -152,7 +184,30 @@ const ForecastView: React.FC<ForecastViewProps> = ({
         </div>
       </div>
 
-      {/* Section 3: 7-Day Outlook */}
+      {/* Section 3: Practical Alerts */}
+      <div className="border border-black bg-white p-4 rounded-2xl">
+        <div className="flex items-center justify-between border-b border-black pb-2 mb-3">
+          <h3 className="font-headline text-2xl font-bold uppercase">Daily Brief</h3>
+          <AlertTriangle className="w-5 h-5" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {(practicalAlerts.length > 0 ? practicalAlerts : [{
+            title: 'All Clear',
+            body: 'No major weather flags in the current forecast.',
+            Icon: Sun,
+          }]).map(({ title, body, Icon }) => (
+            <div key={title} className="border border-black p-3 rounded-xl bg-gray-50">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase tracking-wider">{title}</span>
+                <Icon className="w-4 h-4" />
+              </div>
+              <p className="font-serif text-sm leading-snug">{body}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Section 4: 7-Day Outlook */}
       <div className="bg-white border border-black p-6 relative rounded-2xl">
         
         <div className="flex justify-between items-end mb-6 border-b border-black pb-2">
@@ -234,14 +289,14 @@ const ForecastView: React.FC<ForecastViewProps> = ({
         </div>
 
         {sourceUrl && (
-          <div className="mt-6 text-right">
+          <div className="mt-6 flex justify-end">
             <a 
               href={sourceUrl} 
               target="_blank" 
               rel="noopener noreferrer"
-              className="text-[10px] font-bold uppercase inline-flex items-center hover:bg-black hover:text-white px-2 py-1 transition-colors rounded-md"
+              className="text-[10px] font-bold uppercase inline-flex items-center border border-black px-2 py-1 hover:bg-black hover:text-white transition-colors rounded-md"
             >
-              Check Source <ArrowUpRight className="w-3 h-3 ml-1" />
+              Weather Data: Open-Meteo <ArrowUpRight className="w-3 h-3 ml-1" />
             </a>
           </div>
         )}

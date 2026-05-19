@@ -1,164 +1,252 @@
-
-import { GoogleGenAI } from "@google/genai";
 import { WeatherData } from "../types";
 
-const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+const WEATHER_CACHE_DURATION = 5 * 60 * 1000;
+const CACHE_KEY_PREFIX = 'weather_cache_';
+const CITY_SUGGESTIONS_TTL = 24 * 60 * 60 * 1000;
 
-if (!apiKey || apiKey === 'PLACEHOLDER_API_KEY' || apiKey === 'your_api_key_here') {
-  console.error("⚠️ GEMINI_API_KEY is missing or invalid. Please set it in .env.local");
+const citySuggestionsCache = new Map<string, { data: string[]; timestamp: number }>();
+
+interface GeocodingResult {
+  name: string;
+  latitude: number;
+  longitude: number;
+  country?: string;
+  admin1?: string;
 }
 
-const ai = new GoogleGenAI({ apiKey: apiKey || '' });
+interface ResolvedLocation {
+  name: string;
+  latitude: number;
+  longitude: number;
+}
+
+interface WeatherCodeInfo {
+  condition: string;
+  emoji: string;
+}
+
+const weatherCodes: Record<number, WeatherCodeInfo> = {
+  0: { condition: 'Clear', emoji: '☀️' },
+  1: { condition: 'Mostly Clear', emoji: '🌤️' },
+  2: { condition: 'Partly Cloudy', emoji: '⛅' },
+  3: { condition: 'Cloudy', emoji: '☁️' },
+  45: { condition: 'Foggy', emoji: '🌫️' },
+  48: { condition: 'Freezing Fog', emoji: '🌫️' },
+  51: { condition: 'Light Drizzle', emoji: '🌦️' },
+  53: { condition: 'Drizzle', emoji: '🌦️' },
+  55: { condition: 'Heavy Drizzle', emoji: '🌧️' },
+  56: { condition: 'Freezing Drizzle', emoji: '🌧️' },
+  57: { condition: 'Freezing Drizzle', emoji: '🌧️' },
+  61: { condition: 'Light Rain', emoji: '🌧️' },
+  63: { condition: 'Rain', emoji: '🌧️' },
+  65: { condition: 'Heavy Rain', emoji: '🌧️' },
+  66: { condition: 'Freezing Rain', emoji: '🌧️' },
+  67: { condition: 'Freezing Rain', emoji: '🌧️' },
+  71: { condition: 'Light Snow', emoji: '🌨️' },
+  73: { condition: 'Snow', emoji: '🌨️' },
+  75: { condition: 'Heavy Snow', emoji: '❄️' },
+  77: { condition: 'Snow Grains', emoji: '❄️' },
+  80: { condition: 'Light Showers', emoji: '🌦️' },
+  81: { condition: 'Showers', emoji: '🌧️' },
+  82: { condition: 'Heavy Showers', emoji: '🌧️' },
+  85: { condition: 'Snow Showers', emoji: '🌨️' },
+  86: { condition: 'Heavy Snow Showers', emoji: '❄️' },
+  95: { condition: 'Thunderstorm', emoji: '⛈️' },
+  96: { condition: 'Thunderstorm With Hail', emoji: '⛈️' },
+  99: { condition: 'Thunderstorm With Hail', emoji: '⛈️' },
+};
+
+const getWeatherCodeInfo = (code?: number): WeatherCodeInfo =>
+  weatherCodes[code ?? -1] ?? { condition: 'Unknown', emoji: '🌤️' };
+
+const normalizeWeatherCacheKey = (query: string): string => {
+  const trimmed = query.toLowerCase().trim();
+  const coordinateMatch = trimmed.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+
+  if (!coordinateMatch) return trimmed;
+
+  const latitude = Number(coordinateMatch[1]);
+  const longitude = Number(coordinateMatch[2]);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return trimmed;
+
+  return `${latitude.toFixed(3)},${longitude.toFixed(3)}`;
+};
+
+const formatLocationName = (location: GeocodingResult): string => {
+  const region = location.admin1 && location.admin1 !== location.name ? location.admin1 : location.country;
+  return [location.name, region].filter(Boolean).join(', ');
+};
+
+const resolveLocation = async (query: string): Promise<ResolvedLocation> => {
+  const coordinateMatch = query.trim().match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+
+  if (coordinateMatch) {
+    const latitude = Number(coordinateMatch[1]);
+    const longitude = Number(coordinateMatch[2]);
+
+    if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+      return {
+        name: 'Current Location',
+        latitude,
+        longitude,
+      };
+    }
+  }
+
+  const response = await fetch(
+    `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=en&format=json`
+  );
+
+  if (!response.ok) {
+    throw new Error('Unable to search for that location. Please retry.');
+  }
+
+  const data = await response.json();
+  const firstResult = data.results?.[0] as GeocodingResult | undefined;
+
+  if (!firstResult) {
+    throw new Error(`No matching location found for "${query}".`);
+  }
+
+  return {
+    name: formatLocationName(firstResult),
+    latitude: firstResult.latitude,
+    longitude: firstResult.longitude,
+  };
+};
+
+const buildSummary = (condition: string, high: number, low: number, rainChance: number): string => {
+  const rainLine = rainChance >= 50 ? ` Keep an umbrella close with a ${rainChance}% rain chance.` : '';
+  return `${condition} skies are setting the tone, with a high near ${Math.round(high)}°C and a low near ${Math.round(low)}°C.${rainLine}`;
+};
+
+const buildOutfitSuggestion = (temp: number, condition: string, rainChance: number): string => {
+  if (condition.toLowerCase().includes('snow')) return 'Layer warmly and pick shoes that can handle slush.';
+  if (rainChance >= 50 || condition.toLowerCase().includes('rain')) return 'A light waterproof layer is the winning move today.';
+  if (temp >= 28) return 'Keep it breezy with light fabrics and sun-friendly layers.';
+  if (temp <= 8) return 'Coat weather: add a warm outer layer before heading out.';
+  return 'Comfortable layers should carry you through the day.';
+};
 
 export const getCitySuggestions = async (query: string): Promise<string[]> => {
   if (query.length < 3) return [];
 
-  const model = "gemini-2.5-flash";
-  const prompt = `
-    Task: List 5 distinct real-world cities/locations that start with or match "${query}".
-    Output: JSON Array of strings ONLY. No markdown.
-    Example: ["London, UK", "London, Ontario", "Lone Tree, CO"]
-  `;
+  const queryLower = query.toLowerCase().trim();
+  const cached = citySuggestionsCache.get(queryLower);
+
+  if (cached && Date.now() - cached.timestamp < CITY_SUGGESTIONS_TTL) {
+    return cached.data;
+  }
 
   try {
-    const response = await ai.models.generateContent({
-      model: model,
-      contents: prompt,
-    });
+    const response = await fetch(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en&format=json`
+    );
 
-    const text = response.text || "[]";
-    const cleanJson = text.replace(/```json|```/g, '').trim();
-    return JSON.parse(cleanJson);
+    if (!response.ok) return [];
+
+    const data = await response.json();
+    const result = (data.results ?? []).map((location: GeocodingResult) => formatLocationName(location));
+
+    citySuggestionsCache.set(queryLower, { data: result, timestamp: Date.now() });
+
+    return result;
   } catch (error) {
     console.error("Autocomplete error", error);
     return [];
   }
 };
 
-// Helper to fix common emoji issues (e.g. Japanese Kanji returning as emoji)
-const sanitizeEmoji = (emoji: string): string => {
-  if (!emoji) return "🌤️";
-  // "曇" is Kanji for Cloudy.
-  if (emoji.includes("曇")) return "☁️";
-  if (emoji.includes("晴")) return "☀️";
-  if (emoji.includes("雨")) return "🌧️";
-  if (emoji.includes("雪")) return "❄️";
-  return emoji;
-};
-
 export const getWeather = async (query: string): Promise<WeatherData> => {
-  const model = "gemini-2.5-flash"; 
-  
-  // Optimized prompt for speed and structure
-  const prompt = `
-    Goal: Get accurate weather for "${query}" via Google Search.
-    
-    Output: JSON ONLY. No markdown. No filler.
-    
-    CRITICAL INSTRUCTION: 
-    - Ensure 'current_condition' and 'condition' are in ENGLISH (e.g., 'Cloudy', not '曇り').
-    - Ensure 'current_emoji' and 'emoji' are standard unicode EMOJIS (e.g. ☁️), not text characters.
-    
-    Structure:
-    {
-      "location_name": "City Name",
-      "current_temp_c": number,
-      "current_condition": "Short text in ENGLISH (e.g. 'Mostly Sunny')",
-      "current_emoji": "Single emoji (e.g. 🌤️)",
-      "feels_like_c": number,
-      "high_c": number,
-      "low_c": number,
-      "uv_index": number,
-      "rain_chance_percent": number,
-      "summary": "Short, witty editorial vibe check (max 2 sentences).",
-      "outfit_suggestion": "One sentence style advice based on weather (e.g., 'Trench coat weather', 'Linen shirt day').",
-      "hourly": [
-        { "time": "14:00", "temp_c": number, "emoji": "☀️" },
-        ... (next 10-12 hours. Use 24-hour clock format e.g. 13:00, 14:00)
-      ],
-      "forecast": [
-        { "day": "Mon", "low_c": number, "high_c": number, "condition": "Rain", "emoji": "🌧️" },
-        ... (7 days)
-      ]
-    }
-  `;
+  const cacheKey = CACHE_KEY_PREFIX + normalizeWeatherCacheKey(query);
 
   try {
-    const response = await ai.models.generateContent({
-      model: model,
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }],
-      },
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      const { data, timestamp } = JSON.parse(cached);
+      if (Date.now() - timestamp < WEATHER_CACHE_DURATION) {
+        return data;
+      }
+    }
+  } catch (e) {
+    // Ignore cache errors.
+  }
+
+  try {
+    const location = await resolveLocation(query);
+    const params = new URLSearchParams({
+      latitude: String(location.latitude),
+      longitude: String(location.longitude),
+      current: 'temperature_2m,weather_code,apparent_temperature',
+      hourly: 'temperature_2m,weather_code,precipitation_probability',
+      daily: 'weather_code,temperature_2m_max,temperature_2m_min,uv_index_max,precipitation_probability_max',
+      timezone: 'auto',
+      forecast_days: '7',
     });
 
-    const fullText = response.text || "";
-    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-    
-    const cleanJson = fullText.replace(/```json|```/g, '').trim();
-    let parsedData: any = {};
+    const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`);
 
-    try {
-      parsedData = JSON.parse(cleanJson);
-    } catch (e) {
-      console.error("Failed to parse JSON", cleanJson);
-      throw new Error("Invalid data format received");
+    if (!response.ok) {
+      throw new Error('Weather service failed. Please retry.');
     }
 
-    let sourceUrl = "";
-    if (groundingChunks && groundingChunks.length > 0) {
-        const firstChunk = groundingChunks[0] as any; 
-        if (firstChunk.web?.uri) {
-            sourceUrl = firstChunk.web.uri;
-        }
-    }
+    const data = await response.json();
+    const currentInfo = getWeatherCodeInfo(data.current?.weather_code);
+    const currentTemp = Math.round(data.current?.temperature_2m ?? 0);
+    const highTemp = Math.round(data.daily?.temperature_2m_max?.[0] ?? currentTemp);
+    const lowTemp = Math.round(data.daily?.temperature_2m_min?.[0] ?? currentTemp);
+    const rainChance = Math.round(data.daily?.precipitation_probability_max?.[0] ?? 0);
+    const nowMs = new Date(data.current?.time ?? Date.now()).getTime();
+    const startHourlyIndex = Math.max(
+      0,
+      (data.hourly?.time ?? []).findIndex((time: string) => new Date(time).getTime() >= nowMs)
+    );
 
-    return {
-      locationName: parsedData.location_name || query,
-      tempCelsius: parsedData.current_temp_c ?? 0,
-      condition: parsedData.current_condition || "Unknown",
-      currentEmoji: sanitizeEmoji(parsedData.current_emoji),
-      description: parsedData.summary || "Enjoy the weather!",
-      outfitSuggestion: parsedData.outfit_suggestion || "Wear whatever feels right.",
-      
-      feelsLike: parsedData.feels_like_c ?? parsedData.current_temp_c,
-      tempHigh: parsedData.high_c ?? parsedData.current_temp_c + 5,
-      tempLow: parsedData.low_c ?? parsedData.current_temp_c - 5,
-      uvIndex: parsedData.uv_index ?? 0,
-      rainChance: parsedData.rain_chance_percent ?? 0,
-      
-      hourly: parsedData.hourly?.map((h: any) => ({
-        time: h.time,
-        temp_c: h.temp_c,
-        emoji: sanitizeEmoji(h.emoji)
-      })) || [],
-      
-      forecast: parsedData.forecast?.map((day: any) => ({
-        day: day.day,
-        tempLow: day.low_c,
-        tempHigh: day.high_c,
-        condition: day.condition,
-        emoji: sanitizeEmoji(day.emoji)
-      })) || [],
-      groundingSource: sourceUrl
+    const result: WeatherData = {
+      locationName: location.name,
+      tempCelsius: currentTemp,
+      condition: currentInfo.condition,
+      currentEmoji: currentInfo.emoji,
+      description: buildSummary(currentInfo.condition, highTemp, lowTemp, rainChance),
+      outfitSuggestion: buildOutfitSuggestion(currentTemp, currentInfo.condition, rainChance),
+      feelsLike: Math.round(data.current?.apparent_temperature ?? currentTemp),
+      tempHigh: highTemp,
+      tempLow: lowTemp,
+      uvIndex: Math.round(data.daily?.uv_index_max?.[0] ?? 0),
+      rainChance,
+      hourly: (data.hourly?.time ?? []).slice(startHourlyIndex, startHourlyIndex + 10).map((time: string, index: number) => {
+        const hourlyIndex = startHourlyIndex + index;
+        return {
+          time: new Date(time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+          temp_c: Math.round(data.hourly.temperature_2m[hourlyIndex]),
+          emoji: getWeatherCodeInfo(data.hourly.weather_code[hourlyIndex]).emoji,
+        };
+      }),
+      forecast: (data.daily?.time ?? []).map((date: string, index: number) => {
+        const forecastInfo = getWeatherCodeInfo(data.daily.weather_code[index]);
+        return {
+          day: new Date(date).toLocaleDateString('en-US', { weekday: 'short' }),
+          tempLow: Math.round(data.daily.temperature_2m_min[index]),
+          tempHigh: Math.round(data.daily.temperature_2m_max[index]),
+          condition: forecastInfo.condition,
+          emoji: forecastInfo.emoji,
+        };
+      }),
+      groundingSource: 'https://open-meteo.com/',
     };
 
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify({
+        data: result,
+        timestamp: Date.now()
+      }));
+    } catch (e) {
+      // Ignore localStorage errors.
+    }
+
+    return result;
   } catch (error: any) {
-    console.error("Gemini API Error:", error);
-    
-    // Provide more helpful error messages
-    if (!apiKey || apiKey === 'PLACEHOLDER_API_KEY' || apiKey === 'your_api_key_here') {
-      throw new Error("API key is missing or invalid. Please set GEMINI_API_KEY in .env.local");
-    }
-    
-    if (error?.message?.includes('API_KEY')) {
-      throw new Error("Invalid API key. Please check your GEMINI_API_KEY in .env.local");
-    }
-    
-    if (error?.message?.includes('403') || error?.message?.includes('PERMISSION_DENIED')) {
-      throw new Error("API key permission denied. Please check your API key permissions.");
-    }
-    
     throw new Error(`Failed to fetch weather data: ${error?.message || 'Unknown error'}`);
   }
 };

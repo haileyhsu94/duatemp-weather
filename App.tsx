@@ -8,8 +8,6 @@ import Favorites from './components/Favorites';
 import ForecastView from './components/ForecastView';
 import { WeatherData, LocationItem, LoadingState } from './types';
 
-type LocationSource = 'Precise GPS' | 'Recent GPS' | 'Timezone fallback' | 'Search' | 'Favorite';
-
 const LAST_COORDS_KEY = 'duaTempLastCoords';
 const LAST_COORDS_MAX_AGE = 10 * 60 * 1000;
 
@@ -63,7 +61,6 @@ const App: React.FC = () => {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [status, setStatus] = useState<LoadingState>(LoadingState.IDLE);
   const [error, setError] = useState<string | null>(null);
-  const [locationSource, setLocationSource] = useState<LocationSource | null>(null);
   const [favorites, setFavorites] = useState<LocationItem[]>(() => {
     const saved = localStorage.getItem('duaTempFavorites');
     return saved ? JSON.parse(saved) : [];
@@ -98,10 +95,9 @@ const App: React.FC = () => {
     }
   }, [weather]);
 
-  const fetchWeather = async (query: string, source: LocationSource = 'Search') => {
+  const fetchWeather = async (query: string) => {
     setStatus(LoadingState.LOADING);
     setError(null);
-    setLocationSource(source);
     try {
       const data = await getWeather(query);
       setWeather(data);
@@ -120,7 +116,7 @@ const App: React.FC = () => {
 
       const cachedCoords = useCachedLocation ? getCachedCoords() : null;
       if (cachedCoords) {
-        fetchWeather(formatCoordsForWeather(cachedCoords.latitude, cachedCoords.longitude), 'Recent GPS');
+        fetchWeather(formatCoordsForWeather(cachedCoords.latitude, cachedCoords.longitude));
         return;
       }
 
@@ -128,10 +124,10 @@ const App: React.FC = () => {
         (position) => {
           const { latitude, longitude } = position.coords;
           cacheCoords(latitude, longitude);
-          fetchWeather(formatCoordsForWeather(latitude, longitude), 'Precise GPS');
+          fetchWeather(formatCoordsForWeather(latitude, longitude));
         },
         () => {
-          fetchWeather(getTimezoneLocationQuery(), 'Timezone fallback');
+          fetchWeather(getTimezoneLocationQuery());
         },
         {
           enableHighAccuracy: false,
@@ -180,7 +176,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const defaultLoc = favorites.find(f => f.isDefault);
     if (defaultLoc) {
-      fetchWeather(defaultLoc.name, 'Favorite');
+      fetchWeather(defaultLoc.name);
     } else {
       handleCurrentLocation();
     }
@@ -258,20 +254,14 @@ const App: React.FC = () => {
             {/* Headline Section (Location) */}
             <div className="w-full flex justify-between items-start mb-4 border-b border-black pb-4">
               <div>
-                 <div className="flex items-center space-x-1 mb-1">
-                   <MapPin className="w-4 h-4" />
-                   <span className="text-xs font-bold uppercase tracking-wider">Current Location</span>
-                 </div>
-                 <h2 className="font-headline text-4xl font-bold uppercase leading-none">{weather.locationName}</h2>
+                 <h2 className="font-headline text-4xl font-bold uppercase leading-none flex items-start gap-2">
+                   <MapPin className="w-5 h-5 mt-1 shrink-0" />
+                   <span>{weather.locationName}</span>
+                 </h2>
                  <p className="text-sm italic font-serif mt-1 flex items-center">
                     {weather.condition} 
                     <span className="ml-2 not-italic text-lg">{weather.currentEmoji}</span>
                  </p>
-                 {locationSource && (
-                   <div className="mt-2 inline-flex items-center border border-black bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md">
-                     Location: {locationSource}
-                   </div>
-                 )}
               </div>
               <button 
                 onClick={toggleFavorite} 
@@ -333,7 +323,7 @@ const App: React.FC = () => {
 
         <Favorites 
           favorites={favorites} 
-          onSelect={(location) => fetchWeather(location, 'Favorite')}
+          onSelect={fetchWeather}
           onRemove={removeFavorite} 
           onSetDefault={setDefaultLocation}
         />

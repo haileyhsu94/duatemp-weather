@@ -81,7 +81,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading }) => {
           />
           <button 
             type="submit"
-            className="absolute right-1 top-1 bottom-1 bg-black text-white px-3 hover:bg-gray-800 transition-colors rounded-r-lg"
+            className="absolute right-1 top-1 bottom-1 bg-black text-white px-3 hover:bg-gray-800 transition-colors rounded-lg"
             disabled={isLoading}
           >
             <ArrowRight className="w-4 h-4" />

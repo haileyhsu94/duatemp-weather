@@ -1,7 +1,7 @@
 import { WeatherData } from "../types";
 
 const WEATHER_CACHE_DURATION = 5 * 60 * 1000;
-const CACHE_KEY_PREFIX = 'weather_cache_';
+const CACHE_KEY_PREFIX = 'weather_cache_v3_';
 const CITY_SUGGESTIONS_TTL = 24 * 60 * 60 * 1000;
 
 const citySuggestionsCache = new Map<string, { data: string[]; timestamp: number }>();
@@ -18,6 +18,13 @@ interface ResolvedLocation {
   name: string;
   latitude: number;
   longitude: number;
+}
+
+interface ReverseGeocodingResult {
+  city?: string;
+  locality?: string;
+  principalSubdivision?: string;
+  countryName?: string;
 }
 
 interface WeatherCodeInfo {
@@ -59,6 +66,15 @@ const weatherCodes: Record<number, WeatherCodeInfo> = {
 const getWeatherCodeInfo = (code?: number): WeatherCodeInfo =>
   weatherCodes[code ?? -1] ?? { condition: 'Unknown', emoji: '🌤️' };
 
+const formatForecastDay = (date: string, index: number): string => {
+  if (index === 0) return 'Today';
+
+  const [year, month, day] = date.split('-').map(Number);
+  const localDate = new Date(year, month - 1, day);
+
+  return localDate.toLocaleDateString('en-US', { weekday: 'short' });
+};
+
 const normalizeWeatherCacheKey = (query: string): string => {
   const trimmed = query.toLowerCase().trim();
   const coordinateMatch = trimmed.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
@@ -78,6 +94,30 @@ const formatLocationName = (location: GeocodingResult): string => {
   return [location.name, region].filter(Boolean).join(', ');
 };
 
+const reverseGeocodeCoords = async (latitude: number, longitude: number): Promise<string | null> => {
+  try {
+    const params = new URLSearchParams({
+      latitude: String(latitude),
+      longitude: String(longitude),
+      localityLanguage: 'en',
+    });
+    const response = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?${params.toString()}`);
+
+    if (!response.ok) return null;
+
+    const data = await response.json() as ReverseGeocodingResult;
+    const place = data.city || data.locality;
+    const region = data.principalSubdivision && data.principalSubdivision !== place
+      ? data.principalSubdivision
+      : data.countryName;
+
+    return [place, region].filter(Boolean).join(', ') || null;
+  } catch (error) {
+    console.error("Reverse geocoding error", error);
+    return null;
+  }
+};
+
 const resolveLocation = async (query: string): Promise<ResolvedLocation> => {
   const coordinateMatch = query.trim().match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
 
@@ -86,8 +126,10 @@ const resolveLocation = async (query: string): Promise<ResolvedLocation> => {
     const longitude = Number(coordinateMatch[2]);
 
     if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+      const resolvedName = await reverseGeocodeCoords(latitude, longitude);
+
       return {
-        name: 'Current Location',
+        name: resolvedName || `Near ${latitude.toFixed(3)}, ${longitude.toFixed(3)}`,
         latitude,
         longitude,
       };
@@ -226,7 +268,7 @@ export const getWeather = async (query: string): Promise<WeatherData> => {
       forecast: (data.daily?.time ?? []).map((date: string, index: number) => {
         const forecastInfo = getWeatherCodeInfo(data.daily.weather_code[index]);
         return {
-          day: new Date(date).toLocaleDateString('en-US', { weekday: 'short' }),
+          day: formatForecastDay(date, index),
           tempLow: Math.round(data.daily.temperature_2m_min[index]),
           tempHigh: Math.round(data.daily.temperature_2m_max[index]),
           condition: forecastInfo.condition,
